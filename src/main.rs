@@ -167,7 +167,7 @@ async fn main() -> Result<()> {
         .behaviour_mut()
         .kademlia
         .get_closest_peers(sharer_peer_id);        
-     
+        tracing::info!("Searching for sharer peer id...");
     }
  
     let mut observed_address_seen = false;

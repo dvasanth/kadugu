@@ -4,7 +4,7 @@
 
 # Kadugu
 
-Kadugu is an open-source project that provides a VPN solution utilizing libp2p tunneling, allowing for secure and private HTTP request tunneling. It offers easy configuration, blazing-fast speeds through QUIC protocol. Setup VPN between machines within seconds.
+Kadugu, an innovative open-source project revolutionizing VPN solutions. It harnesses the power of libp2p tunneling to facilitate secure and private HTTP request tunneling, all within a concise codebase of less than 1,000 lines. It offers easy configuration, blazing-fast speeds through QUIC protocol. Setup VPN between machines within seconds. 
 
 ## Comparison with other VPNs:
 Architecture: Kadugu employs a decentralized peer-to-peer architecture, eliminating the need for a central server and offering direct connections between peers.
