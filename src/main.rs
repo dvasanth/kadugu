@@ -140,11 +140,10 @@ async fn main() -> Result<()> {
         .accept(PROXY_PROTOCOL)
         .unwrap();
 
-        swarm
-        .behaviour_mut()
-        .kademlia
-        .set_mode(Some(kad::Mode::Server));
-
+        let _ = swarm
+                .behaviour_mut()
+                .kademlia
+                .bootstrap();
         tokio::spawn(async move {
             // start the proxy server
             let proxy = proxyserver::HttpProxy::new(SocketAddr::from(([127, 0, 0, 1], 8090)));
@@ -158,11 +157,7 @@ async fn main() -> Result<()> {
         });
     } else {
         swarm.listen_on("/ip4/0.0.0.0/udp/12008/quic-v1".parse()?)?;
-        
-        /*swarm
-        .behaviour_mut()
-        .kademlia
-        .set_mode(Some(kad::Mode::Client));*/
+
         swarm
         .behaviour_mut()
         .kademlia
