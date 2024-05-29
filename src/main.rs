@@ -32,6 +32,7 @@ fn print_usage() {
     println!("  -s <list of allowed peer ids>   Share internet to all or [optional] allowed peer ids");
     println!("  -u <sharer peer id> Use the shared internet with sharer peer id");
     println!("  -p Print the peer id");
+    println!("  -e Expose internet to other machines in the user LAN. Use it with -u option.");
 }
 enum Mode {
     Sharer,
@@ -51,7 +52,7 @@ async fn main() -> Result<()> {
         .with_env_filter(
             EnvFilter::builder()
                 .with_default_directive(LevelFilter::INFO.into())
-                .from_env()?,
+                .parse("kadugu")?,
         ).init();
     let args: Vec<String> = env::args().collect();
 
@@ -62,6 +63,7 @@ async fn main() -> Result<()> {
     let mut accepted_peer_ids = Vec::new();
     let mut mode:Mode= Mode::PrintPeerId;
     let mut sharer_peer_id = PeerId::random();
+    let mut proxy_listen_addr:SocketAddr = SocketAddr::from(([127, 0, 0, 1], 8080));
     if let Some(cmd) = args.get(1).map(|s| s.as_str()) {
         match cmd {
             "-s" => {
@@ -83,9 +85,11 @@ async fn main() -> Result<()> {
                 } else {
                     tracing::error!("Peer ID not provided for -u option");
                 }
+                if args.iter().any(|arg| arg == "-e") {
+                    proxy_listen_addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+                }
             }
             "-p" => {
-
             }
             _ =>{
                 print_usage();
@@ -202,23 +206,23 @@ async fn main() -> Result<()> {
                     swarm.dial(listen_addrs.clone()[0].clone())?;
     
                     tokio::spawn(portforward_connection_handler(
-                        peer_id, swarm.behaviour().stream.new_control()));
+                        peer_id, swarm.behaviour().stream.new_control(), proxy_listen_addr));
                     sharer_dial_complete = true;
                 }
             }
-            event => tracing::trace!(?event),
+            // event => tracing::trace!(?event),
+            _ => {}
         }
     }
 }
 
 /// A very simple, `async fn`-based connection handler for our custom echo protocol.
-async fn portforward_connection_handler(peer: PeerId, mut control: stream::Control) {
+async fn portforward_connection_handler(peer: PeerId, mut control: stream::Control, proxy_listen_addr:SocketAddr) {
     
         tokio::time::sleep(Duration::from_secs(1)).await; // Wait a second between echos.
         //tracing::info!(%peer, "portforward_connection_handler invoked!");
 
-        let addr = SocketAddr::from(([127, 0, 0, 1], 8080)); // Bind to localhost on port 8080
-        let listener = TcpListener::bind(addr).await.unwrap();
+        let listener = TcpListener::bind(proxy_listen_addr).await.unwrap();
         tracing::info!("Set your browser proxy setting to 127.0.0.1:8080 to use internet from sharer");
         loop {
             let ( app_stream, _) = listener.accept().await.unwrap();
