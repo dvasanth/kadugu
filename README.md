@@ -13,6 +13,11 @@ Performance: Most VPN built reliance on TCP (Transmission Control Protocol) can 
 
 Ease of Use: Typical VPN configuration often involves setting up and managing server configurations, certificates, and client profiles, which can be cumbersome for inexperienced users. Kadugu's single binary deployment and simplified configuration options make it easier to deploy and use, requiring minimal setup and maintenance.
 
+## Youtube Video - Configuration with VPN bandwidth testing 
+
+[![Configure](https://img.youtube.com/vi/k2IBeYTIpz4/0.jpg)](https://www.youtube.com/watch?v=k2IBeYTIpz4)
+
+
 ## Installation
 
 1. Download the latest release from the [releases page](https://github.com/Kadugu/Kadugu/releases).
