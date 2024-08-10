@@ -2,7 +2,7 @@
   <img src="https://github.com/dvasanth/kadugu/blob/main/res/kadugu.png" alt="Kadugu Icon">
 </p>
 
-# Kadugu
+# Kadugu VPN - Split connection approach
 
 Kadugu, an innovative open-source project revolutionizing VPN solutions. It harnesses the power of libp2p tunneling to facilitate secure and private HTTP request tunneling, all within a concise codebase of less than 1,000 lines. It offers easy configuration, blazing-fast speeds through QUIC protocol. Setup VPN between machines within seconds. 
 
