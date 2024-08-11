@@ -7,11 +7,18 @@
 Kadugu, an innovative open-source project revolutionizing VPN solutions. It harnesses the power of libp2p tunneling to facilitate secure and private HTTP request tunneling, all within a concise codebase of less than 1,000 lines. It offers easy configuration, blazing-fast speeds through QUIC protocol. Setup VPN between machines within seconds. 
 
 ## Comparison with other VPNs:
-Architecture: Kadugu employs a decentralized peer-to-peer architecture, eliminating the need for a central server and offering direct connections between peers.
+### Architecture 
+Kadugu employs a decentralized peer-to-peer architecture, eliminating the need for a central server and offering direct connections between peers.
 
-Performance: Traditional VPN solutions typically establish a tunnel from the home network to the data center, relying on TCP for end-to-end connectivity. However, TCP can struggle to maintain performance over lossy home networks due to its sensitivity to fluctuating bandwidth. Our VPN solution improves upon this by splitting the connection into two segments: the first, between the home network and the data center, utilizes the QUIC protocol, which is specifically designed to handle lossy and variable networks. The second segment, from the data center to the internet, employs TCP, which excels in the stable and reliable environment of the data center. This hybrid approach results in a VPN connection that offers both low latency and high bandwidth, ensuring a smoother and faster user experience.
+### Performance
+Traditional VPN solutions typically establish a tunnel from the home network to the data center, relying on TCP for end-to-end connectivity. However, TCP can struggle to maintain performance over lossy home networks due to its sensitivity to fluctuating bandwidth.
 
-Ease of Use: Typical VPN configuration often involves setting up and managing server configurations, certificates, and client profiles, which can be cumbersome for inexperienced users. Kadugu's single binary deployment and simplified configuration options make it easier to deploy and use, requiring minimal setup and maintenance.
+![image](https://github.com/user-attachments/assets/25772ca9-916e-4487-b9c2-9b620b80042f)
+
+This VPN solution improves upon this bandwidth variation by splitting the connection into two segments: the first, between the home network and the data center, utilizing the QUIC protocol, which is specifically designed to handle lossy and variable networks. The second segment, from the data center to the internet, employs TCP, which excels in the stable and reliable environment of the data center. This hybrid approach results in a VPN connection that offers both low latency and high bandwidth, ensuring a smoother and faster user experience.
+
+### Ease of Use
+Typical VPN configuration often involves setting up and managing server configurations, certificates, and client profiles, which can be cumbersome for inexperienced users. Kadugu's single binary deployment and simplified configuration make it easier to deploy and use, requiring minimal setup and maintenance.
 
 ## Youtube Video - Configuration with VPN bandwidth testing 
 
