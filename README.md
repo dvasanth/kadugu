@@ -20,6 +20,9 @@ This VPN solution improves upon this bandwidth variation by splitting the connec
 ### Ease of Use
 Typical VPN configuration often involves setting up and managing server configurations, certificates, and client profiles, which can be cumbersome for inexperienced users. Kadugu's single binary deployment and simplified configuration make it easier to deploy and use, requiring minimal setup and maintenance.
 
+## Security
+Peers in Kadugu VPN are verified using the Noise protocol over QUIC (a secure transport). During the initial connection, a Noise handshake is performed, where peers exchange cryptographic keys. The Peer IDs are then verified against the exchanged public keys, ensuring that each peer is communicating with the correct identity. All data is encrypted over the libp2p channel, preventing raw traffic from being exposed to the open internet.
+
 ## Youtube Video - Configuration with VPN bandwidth testing 
 
 [![Configure](https://img.youtube.com/vi/k2IBeYTIpz4/0.jpg)](https://www.youtube.com/watch?v=k2IBeYTIpz4)
