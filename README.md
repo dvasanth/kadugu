@@ -44,6 +44,10 @@ chmod +x kadugu
 ```bash
 ./kadugu -p
 ```
+2. Allow firewall rule for UDP port in sharer machine
+```bash
+   sudo ufw allow 12007
+```
 ### Sharing Internet
 1. Run the Kadugu server to share your internet:
 ```bash
