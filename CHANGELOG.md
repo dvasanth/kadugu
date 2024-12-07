@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.3] - 2024-12-07
+
+### Added
+
+- Replaced the KAD with relay client and DCUTR to support NAT hole punching.
+
 ## [0.0.2] - 2024-05-29
 
 ### Added
