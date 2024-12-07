@@ -4,16 +4,18 @@ use std::time::Duration;
 use std::net::SocketAddr;
 use std::fs::{read, write};
 use std::io::Error;
+use libp2p::Multiaddr;
 use libp2p::{
     identity::Keypair,
     identify,
     PeerId,
-    kad,
     noise, tcp, yamux,
+    relay, dcutr,
     StreamProtocol,
     multiaddr::Protocol,
     swarm::NetworkBehaviour
 };
+
 use futures::stream::StreamExt;
 use libp2p_stream as stream;
 use tracing::level_filters::LevelFilter;
@@ -42,8 +44,9 @@ enum Mode {
 #[derive(NetworkBehaviour)]
 struct Behaviour {
     identify: identify::Behaviour,
-    kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    stream: stream::Behaviour
+    stream: stream::Behaviour,
+    relay_client: relay::client::Behaviour,
+    dcutr: dcutr::Behaviour,
 }
 
 #[tokio::main]
@@ -97,7 +100,6 @@ async fn main() -> Result<()> {
         }
     }
     let key_pair = get_identity().unwrap();
-    let peer_id = key_pair.public().to_peer_id();
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(key_pair)
         .with_tokio()
         .with_tcp(
@@ -107,36 +109,31 @@ async fn main() -> Result<()> {
         )?
         .with_quic()        
         .with_dns()?
-        .with_behaviour(|key_pair| Behaviour {
+        .with_relay_client(noise::Config::new, yamux::Config::default)?
+        .with_behaviour(|key_pair, relay_behaviour| Behaviour {
             stream: stream::Behaviour::new(),
-            // Create a Kademlia behaviour.
-            kademlia: kad::Behaviour::new(
-                peer_id,
-                kad::store::MemoryStore::new(key_pair.public().to_peer_id()),
-            ),
             identify: identify::Behaviour::new(identify::Config::new(
                 "/proxy/0.0.1".to_string(),
                 key_pair.public(),
-            ).with_agent_version(PROXY_AGENT.into())),                 
+            ).with_agent_version(PROXY_AGENT.into())),
+            relay_client: relay_behaviour,
+            dcutr: dcutr::Behaviour::new(key_pair.public().to_peer_id()),
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(10)))
         .build();
 
-    // bootstrap address from ipfs/kubo
-    let kubo_peer = "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ";
-    swarm
-    .behaviour_mut()
-    .kademlia
-    .add_address(&kubo_peer.parse()?, "/ip4/104.131.131.82/tcp/4001".parse()?);
-    
+    let relay_address:Multiaddr = "/ip4/104.131.131.82/udp/4001/quic-v1/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ".parse()?;
+
     if let  Mode::PrintPeerId = mode {
         tracing::info!("This machine PeerId: {:?}", swarm.local_peer_id());
         return Ok(());
     }
-
+    swarm.listen_on("/ip4/0.0.0.0/udp/12007/quic-v1".parse()?)?;
+    swarm.listen_on("/ip6/::/udp/12007/quic-v1".parse()?)?;
+    swarm.dial(relay_address.clone()).unwrap();
 
     if let  Mode::Sharer = mode  {
-        swarm.listen_on("/ip4/0.0.0.0/udp/12007/quic-v1".parse()?)?;
+
         let incoming_streams = swarm
         .behaviour()
         .stream
@@ -144,10 +141,6 @@ async fn main() -> Result<()> {
         .accept(PROXY_PROTOCOL)
         .unwrap();
 
-        let _ = swarm
-                .behaviour_mut()
-                .kademlia
-                .bootstrap();
         tokio::spawn(async move {
             // start the proxy server
             let proxy = proxyserver::HttpProxy::new(SocketAddr::from(([127, 0, 0, 1], 8090)));
@@ -160,82 +153,82 @@ async fn main() -> Result<()> {
             handle_incoming_streams(incoming_streams, accepted_peer_ids).await;
         });
     } else {
-        swarm.listen_on("/ip4/0.0.0.0/udp/12008/quic-v1".parse()?)?;
-
-        swarm
-        .behaviour_mut()
-        .kademlia
-        .get_closest_peers(sharer_peer_id);        
         tracing::info!("Searching for sharer peer id...");
     }
  
-    let mut observed_address_seen = false;
     let mut sharer_dial_complete = false;
+    let mut relay_reservation_complete = false;
     // Poll the swarm to make progress.
     loop {
         let event = swarm.next().await.expect("never terminates");
 
         match event {
-            libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::Kademlia(
-                kad::Event::OutboundQueryProgressed {
-                    result: kad::QueryResult::GetClosestPeers(Ok(kad::GetClosestPeersOk { peers, .. })),
-                    step: kad::ProgressStep {  last , ..},
-                    ..
-                },
-            )) =>{
-                if peers.contains(&sharer_peer_id){
-                    tracing::info!("Found the sharer peer id");
-                } else if last {
-                    tracing::info!("Unable to find the Internet sharer peer id. Check if sharer has Internet reachable address.")
-                }
-            }          
-            libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
-                info: identify::Info { observed_addr, listen_addrs,.. },
-                peer_id
-            })) => {
-                
-                let contains_udp = observed_addr.iter().any(|proto| matches!(proto, Protocol::Udp(_))); 
-                if  observed_address_seen == false && contains_udp {
-                    tracing::info!(address=%observed_addr, "Found Internet reachable address for this peer");
-                    swarm.add_external_address(observed_addr);
-                    observed_address_seen = true;
-                }
-
-                if peer_id == sharer_peer_id && sharer_dial_complete == false {
-                    tracing::info!("Found network address of sharer peer {:?}", listen_addrs);
-                    swarm.dial(listen_addrs.clone()[0].clone())?;
-    
-                    tokio::spawn(portforward_connection_handler(
-                        peer_id, swarm.behaviour().stream.new_control(), proxy_listen_addr));
-                    sharer_dial_complete = true;
+            libp2p::swarm::SwarmEvent::ExternalAddrExpired { .. } => {
+                relay_reservation_complete = false;
+            }
+            libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::RelayClient(relay::client::Event::ReservationReqAccepted { 
+                relay_peer_id,
+                ..})) => {
+                    tracing::info!("Reservation with relay {:?} completed ", relay_peer_id);
+                    relay_reservation_complete = true;
+            }
+            libp2p::swarm::SwarmEvent::OutgoingConnectionError {connection_id:_, peer_id, .. } => {
+                if peer_id.is_some_and(|id| id == sharer_peer_id) {
+                    //sharer_dial_complete = false;
+                    swarm
+                    .dial(relay_address.clone()
+                            .with(Protocol::P2pCircuit)
+                            .with(Protocol::P2p(sharer_peer_id)),
+                        )
+                    .unwrap();
                 }
             }
-            // event => tracing::trace!(?event),
-            _ => {}
+            libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
+                  ..
+            })) => {
+                if let  Mode::Sharer = mode  {
+                    if relay_reservation_complete == false {
+                        swarm
+                        .listen_on(relay_address.clone().with(Protocol::P2pCircuit))
+                        .unwrap();
+                    }
+                } else {
+                    if sharer_dial_complete == false {
+                        swarm
+                        .dial(relay_address.clone()
+                                .with(Protocol::P2pCircuit)
+                                .with(Protocol::P2p(sharer_peer_id)),
+                            )
+                        .unwrap();
+                        tokio::spawn(portforward_connection_handler(
+                            sharer_peer_id, swarm.behaviour().stream.new_control(), proxy_listen_addr));
+                        sharer_dial_complete = true;
+                    }  
+                }
+            }
+            event => tracing::trace!(?event),
+            //_ => {}
         }
     }
 }
 
 /// A very simple, `async fn`-based connection handler for our custom echo protocol.
 async fn portforward_connection_handler(peer: PeerId, mut control: stream::Control, proxy_listen_addr:SocketAddr) {
-    
-        tokio::time::sleep(Duration::from_secs(1)).await; // Wait a second between echos.
-        //tracing::info!(%peer, "portforward_connection_handler invoked!");
-
         let listener = TcpListener::bind(proxy_listen_addr).await.unwrap();
         tracing::info!("Set your browser proxy setting to 127.0.0.1:8080 to use internet from sharer");
         loop {
             let ( app_stream, _) = listener.accept().await.unwrap();
             let _ = app_stream.set_nodelay(true);
+
             let  p2p_stream = match control.open_stream(peer, PROXY_PROTOCOL).await {
                 Ok(stream) => stream,
                 Err(error @ stream::OpenStreamError::UnsupportedProtocol(_)) => {
                     tracing::info!(%peer, %error);
-                    return;
+                    continue;
                 }
                 Err(error) => {
-                     tracing::info!(%peer, %error);
-                    return;
+                    tracing::info!(%peer, %error);
+                    continue;
                 }
             };
    
