@@ -82,6 +82,14 @@ async fn main() -> Result<()> {
                 .action(ArgAction::SetTrue)
                 .help("Expose the internet to other machines in the local network. Use it with -u option"),
         )
+        .arg(
+            Arg::new("relay")
+                .short('r')
+                .long("relay")
+                .value_name("addr")
+                .default_value("/ip4/104.131.131.82/udp/4001/quic-v1/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ")
+                .help("Relay server address"),
+        )
         .get_matches();
 
     let mut accepted_peer_ids = Vec::new();
@@ -142,9 +150,11 @@ async fn main() -> Result<()> {
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(10)))
         .build();
 
-    let relay_address: Multiaddr =
-        "/ip4/104.131.131.82/udp/4001/quic-v1/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
-            .parse()?;
+    let relay_address: Multiaddr = matches
+        .get_one::<String>("relay")
+        .unwrap()
+        .parse()
+        .expect("Invalid relay address");
 
     if let Mode::PrintPeerId = mode {
         tracing::info!("This machine PeerId: {:?}", swarm.local_peer_id());
