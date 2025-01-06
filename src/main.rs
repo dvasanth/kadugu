@@ -1,5 +1,6 @@
 mod proxyserver;
 
+use std::cmp::PartialEq;
 use std::time::Duration;
 use std::net::SocketAddr;
 use std::fs::{read, write};
@@ -23,23 +24,17 @@ use tracing_subscriber::EnvFilter;
 use tokio::net::{TcpListener,TcpStream};
 use anyhow::Result;
 use async_compat::Compat;
-use std::env;
-
+use clap::{crate_description, crate_version, Arg, ArgAction, Command};
 
 const PROXY_PROTOCOL: StreamProtocol = StreamProtocol::new("/proxy");
 const PROXY_AGENT: &str = "libp2p-proxy-vpn";
 
-fn print_usage() {
-    println!("Usage:");
-    println!("  -s <list of allowed peer ids>   Share internet to all or [optional] allowed peer ids");
-    println!("  -u <sharer peer id> Use the shared internet with sharer peer id");
-    println!("  -p Print the peer id");
-    println!("  -e Expose internet to other machines in the user LAN. Use it with -u option.");
-}
+#[derive(PartialEq)]
 enum Mode {
     Sharer,
     User,
-    PrintPeerId
+    PrintPeerId,
+    Undefined,
 }
 #[derive(NetworkBehaviour)]
 struct Behaviour {
@@ -57,48 +52,75 @@ async fn main() -> Result<()> {
                 .with_default_directive(LevelFilter::INFO.into())
                 .parse("kadugu")?,
         ).init();
-    let args: Vec<String> = env::args().collect();
 
-    if args.len() <= 1 {
-        print_usage();
-        return Ok(());
-    }
+    let matches = Command::new("kadugu")
+        .version(crate_version!())
+        .about(crate_description!())
+        .arg_required_else_help(true)
+        .arg(
+            Arg::new("sharer")
+                .short('s')
+                .long("sharer")
+                .value_name("ids")
+                .num_args(0..)
+                .value_delimiter(',')
+                .help("Share internet to all or specific peer IDs"),
+        )
+        .arg(
+            Arg::new("user")
+                .short('u')
+                .long("user")
+                .value_name("id")
+                .help("Peer ID of the sharer to connect to"),
+        )
+        .arg(
+            Arg::new("print-peer-id")
+                .short('p')
+                .long("print-peer-id")
+                .action(ArgAction::SetTrue)
+                .help("Print the local Peer ID"),
+        )
+        .arg(
+            Arg::new("expose-lan")
+                .short('e')
+                .long("expose-lan")
+                .action(ArgAction::SetTrue)
+                .help("Expose the internet to other machines in the local network. Use it with -u option"),
+        )
+        .get_matches();
+
     let mut accepted_peer_ids = Vec::new();
-    let mut mode:Mode= Mode::PrintPeerId;
+    let mut mode:Mode= Mode::Undefined;
     let mut sharer_peer_id = PeerId::random();
     let mut proxy_listen_addr:SocketAddr = SocketAddr::from(([127, 0, 0, 1], 8080));
-    if let Some(cmd) = args.get(1).map(|s| s.as_str()) {
-        match cmd {
-            "-s" => {
-                let peer_ids = &args[2..];
-                if peer_ids.is_empty() {
-                    tracing::info!("Internet shared with anonymous users. Use peer id of known users to prevent unauthorised internet access.");
-                } else {
-                    tracing::info!("Internet shared only with peer IDs: {:?}", peer_ids);
-                }
-                accepted_peer_ids = args.iter().skip(2).cloned().collect();
-                mode = Mode::Sharer
-            }
-            "-u" => {
-                if let Some(peer_id) = args.get(2) {
-                    tracing::info!("Using Internet from peer ID: {}", peer_id);
-                   
-                    sharer_peer_id = peer_id.parse()?;
-                    mode = Mode::User
-                } else {
-                    tracing::error!("Peer ID not provided for -u option");
-                }
-                if args.iter().any(|arg| arg == "-e") {
-                    proxy_listen_addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-                }
-            }
-            "-p" => {
-            }
-            _ =>{
-                print_usage();
-            }
+
+    if let Some(peer_ids) = matches.get_many::<String>("sharer") {
+        accepted_peer_ids = peer_ids.map(|id| id.to_string()).collect();
+        if accepted_peer_ids.is_empty() {
+            tracing::info!("Internet shared with anonymous users. Use peer id of known users to prevent unauthorised internet access.");
+        } else {
+            tracing::info!("Internet shared only with peer IDs: {:?}", accepted_peer_ids);
+        }
+        mode = Mode::Sharer;
+    } else if let Some(peer_id) = matches.get_one::<String>("user") {
+        sharer_peer_id = peer_id.parse()?;
+        tracing::info!("Using Internet from peer ID: {}", sharer_peer_id);
+        mode = Mode::User;
+
+        if matches.get_flag("expose-lan") {
+            proxy_listen_addr = SocketAddr::from(([0, 0, 0, 0], 8080));
         }
     }
+
+    if matches.get_flag("print-peer-id") {
+        mode = Mode::PrintPeerId;
+    }
+    
+    if mode == Mode::Undefined {
+        tracing::error!("Please specify either --sharer or --user or --print-peer-id");
+        return Ok(());
+    }
+
     let key_pair = get_identity().unwrap();
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(key_pair)
         .with_tokio()
