@@ -224,7 +224,7 @@ async fn main() -> Result<()> {
                                 .with(Protocol::P2pCircuit)
                                 .with(Protocol::P2p(sharer_peer_id)),
                         )?;
-                    tokio::spawn(portforward_connection_handler(
+                    tokio::spawn(port_forward_connection_handler(
                         sharer_peer_id,
                         swarm.behaviour().stream.new_control(),
                         proxy_listen_addr,
@@ -239,7 +239,7 @@ async fn main() -> Result<()> {
 }
 
 /// A very simple, `async fn`-based connection handler for our custom echo protocol.
-async fn portforward_connection_handler(
+async fn port_forward_connection_handler(
     peer: PeerId,
     mut control: stream::Control,
     proxy_listen_addr: SocketAddr,
