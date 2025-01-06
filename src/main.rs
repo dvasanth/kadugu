@@ -119,7 +119,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let key_pair = get_identity().unwrap();
+    let key_pair = get_identity()?;
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(key_pair)
         .with_tokio()
         .with_tcp(
@@ -152,15 +152,14 @@ async fn main() -> Result<()> {
     }
     swarm.listen_on("/ip4/0.0.0.0/udp/12007/quic-v1".parse()?)?;
     swarm.listen_on("/ip6/::/udp/12007/quic-v1".parse()?)?;
-    swarm.dial(relay_address.clone()).unwrap();
+    swarm.dial(relay_address.clone())?;
 
     if let Mode::Sharer = mode {
         let incoming_streams = swarm
             .behaviour()
             .stream
             .new_control()
-            .accept(PROXY_PROTOCOL)
-            .unwrap();
+            .accept(PROXY_PROTOCOL)?;
 
         tokio::spawn(async move {
             // start the proxy server
@@ -206,36 +205,31 @@ async fn main() -> Result<()> {
                                 .clone()
                                 .with(Protocol::P2pCircuit)
                                 .with(Protocol::P2p(sharer_peer_id)),
-                        )
-                        .unwrap();
+                        )?;
                 }
             }
             libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::Identify(
                 identify::Event::Received { .. },
             )) => {
                 if let Mode::Sharer = mode {
-                    if relay_reservation_complete == false {
+                    if !relay_reservation_complete {
                         swarm
-                            .listen_on(relay_address.clone().with(Protocol::P2pCircuit))
-                            .unwrap();
+                            .listen_on(relay_address.clone().with(Protocol::P2pCircuit))?;
                     }
-                } else {
-                    if sharer_dial_complete == false {
-                        swarm
-                            .dial(
-                                relay_address
-                                    .clone()
-                                    .with(Protocol::P2pCircuit)
-                                    .with(Protocol::P2p(sharer_peer_id)),
-                            )
-                            .unwrap();
-                        tokio::spawn(portforward_connection_handler(
-                            sharer_peer_id,
-                            swarm.behaviour().stream.new_control(),
-                            proxy_listen_addr,
-                        ));
-                        sharer_dial_complete = true;
-                    }
+                } else if !sharer_dial_complete {
+                    swarm
+                        .dial(
+                            relay_address
+                                .clone()
+                                .with(Protocol::P2pCircuit)
+                                .with(Protocol::P2p(sharer_peer_id)),
+                        )?;
+                    tokio::spawn(portforward_connection_handler(
+                        sharer_peer_id,
+                        swarm.behaviour().stream.new_control(),
+                        proxy_listen_addr,
+                    ));
+                    sharer_dial_complete = true;
                 }
             }
             event => tracing::trace!(?event),
@@ -296,7 +290,7 @@ async fn portforward_connection_handler(
 async fn handle_incoming_streams(
     mut incoming_streams: stream::IncomingStreams,
     accepted_peer_ids: Vec<String>,
-) -> () {
+) {
     while let Some((peer, p2p_stream)) = incoming_streams.next().await {
         let peer_id_str = peer.to_string();
         let mut is_accepted = true;
@@ -343,12 +337,12 @@ fn get_identity() -> Result<Keypair, Error> {
     let file_path = "identity.keypair";
 
     // Try to read the key pair from the file
-    match read(&file_path) {
+    match read(file_path) {
         Ok(keypair) => Ok(Keypair::from_protobuf_encoding(keypair.as_slice()).unwrap()),
         Err(_) => {
             // If the file doesn't exist or is invalid, generate a new key pair
             let new_keypair = Keypair::generate_ed25519();
-            write(&file_path, new_keypair.to_protobuf_encoding().unwrap())?;
+            write(file_path, new_keypair.to_protobuf_encoding().unwrap())?;
             Ok(new_keypair)
         }
     }
