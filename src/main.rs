@@ -1,30 +1,24 @@
 mod proxyserver;
 
-use std::cmp::PartialEq;
-use std::time::Duration;
-use std::net::SocketAddr;
-use std::fs::{read, write};
-use std::io::Error;
 use libp2p::Multiaddr;
 use libp2p::{
-    identity::Keypair,
-    identify,
-    PeerId,
-    noise, tcp, yamux,
-    relay, dcutr,
-    StreamProtocol,
-    multiaddr::Protocol,
-    swarm::NetworkBehaviour
+    dcutr, identify, identity::Keypair, multiaddr::Protocol, noise, relay, swarm::NetworkBehaviour,
+    tcp, yamux, PeerId, StreamProtocol,
 };
+use std::cmp::PartialEq;
+use std::fs::{read, write};
+use std::io::Error;
+use std::net::SocketAddr;
+use std::time::Duration;
 
-use futures::stream::StreamExt;
-use libp2p_stream as stream;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::EnvFilter;
-use tokio::net::{TcpListener,TcpStream};
 use anyhow::Result;
 use async_compat::Compat;
 use clap::{crate_description, crate_version, Arg, ArgAction, Command};
+use futures::stream::StreamExt;
+use libp2p_stream as stream;
+use tokio::net::{TcpListener, TcpStream};
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 const PROXY_PROTOCOL: StreamProtocol = StreamProtocol::new("/proxy");
 const PROXY_AGENT: &str = "libp2p-proxy-vpn";
@@ -51,7 +45,8 @@ async fn main() -> Result<()> {
             EnvFilter::builder()
                 .with_default_directive(LevelFilter::INFO.into())
                 .parse("kadugu")?,
-        ).init();
+        )
+        .init();
 
     let matches = Command::new("kadugu")
         .version(crate_version!())
@@ -90,16 +85,19 @@ async fn main() -> Result<()> {
         .get_matches();
 
     let mut accepted_peer_ids = Vec::new();
-    let mut mode:Mode= Mode::Undefined;
+    let mut mode: Mode = Mode::Undefined;
     let mut sharer_peer_id = PeerId::random();
-    let mut proxy_listen_addr:SocketAddr = SocketAddr::from(([127, 0, 0, 1], 8080));
+    let mut proxy_listen_addr: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 8080));
 
     if let Some(peer_ids) = matches.get_many::<String>("sharer") {
         accepted_peer_ids = peer_ids.map(|id| id.to_string()).collect();
         if accepted_peer_ids.is_empty() {
             tracing::info!("Internet shared with anonymous users. Use peer id of known users to prevent unauthorised internet access.");
         } else {
-            tracing::info!("Internet shared only with peer IDs: {:?}", accepted_peer_ids);
+            tracing::info!(
+                "Internet shared only with peer IDs: {:?}",
+                accepted_peer_ids
+            );
         }
         mode = Mode::Sharer;
     } else if let Some(peer_id) = matches.get_one::<String>("user") {
@@ -115,7 +113,7 @@ async fn main() -> Result<()> {
     if matches.get_flag("print-peer-id") {
         mode = Mode::PrintPeerId;
     }
-    
+
     if mode == Mode::Undefined {
         tracing::error!("Please specify either --sharer or --user or --print-peer-id");
         return Ok(());
@@ -129,24 +127,26 @@ async fn main() -> Result<()> {
             noise::Config::new,
             yamux::Config::default,
         )?
-        .with_quic()        
+        .with_quic()
         .with_dns()?
         .with_relay_client(noise::Config::new, yamux::Config::default)?
         .with_behaviour(|key_pair, relay_behaviour| Behaviour {
             stream: stream::Behaviour::new(),
-            identify: identify::Behaviour::new(identify::Config::new(
-                "/proxy/0.0.1".to_string(),
-                key_pair.public(),
-            ).with_agent_version(PROXY_AGENT.into())),
+            identify: identify::Behaviour::new(
+                identify::Config::new("/proxy/0.0.1".to_string(), key_pair.public())
+                    .with_agent_version(PROXY_AGENT.into()),
+            ),
             relay_client: relay_behaviour,
             dcutr: dcutr::Behaviour::new(key_pair.public().to_peer_id()),
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(10)))
         .build();
 
-    let relay_address:Multiaddr = "/ip4/104.131.131.82/udp/4001/quic-v1/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ".parse()?;
+    let relay_address: Multiaddr =
+        "/ip4/104.131.131.82/udp/4001/quic-v1/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+            .parse()?;
 
-    if let  Mode::PrintPeerId = mode {
+    if let Mode::PrintPeerId = mode {
         tracing::info!("This machine PeerId: {:?}", swarm.local_peer_id());
         return Ok(());
     }
@@ -154,14 +154,13 @@ async fn main() -> Result<()> {
     swarm.listen_on("/ip6/::/udp/12007/quic-v1".parse()?)?;
     swarm.dial(relay_address.clone()).unwrap();
 
-    if let  Mode::Sharer = mode  {
-
+    if let Mode::Sharer = mode {
         let incoming_streams = swarm
-        .behaviour()
-        .stream
-        .new_control()
-        .accept(PROXY_PROTOCOL)
-        .unwrap();
+            .behaviour()
+            .stream
+            .new_control()
+            .accept(PROXY_PROTOCOL)
+            .unwrap();
 
         tokio::spawn(async move {
             // start the proxy server
@@ -177,7 +176,7 @@ async fn main() -> Result<()> {
     } else {
         tracing::info!("Searching for sharer peer id...");
     }
- 
+
     let mut sharer_dial_complete = false;
     let mut relay_reservation_complete = false;
     // Poll the swarm to make progress.
@@ -188,44 +187,55 @@ async fn main() -> Result<()> {
             libp2p::swarm::SwarmEvent::ExternalAddrExpired { .. } => {
                 relay_reservation_complete = false;
             }
-            libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::RelayClient(relay::client::Event::ReservationReqAccepted { 
-                relay_peer_id,
-                ..})) => {
-                    tracing::info!("Reservation with relay {:?} completed ", relay_peer_id);
-                    relay_reservation_complete = true;
+            libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::RelayClient(
+                relay::client::Event::ReservationReqAccepted { relay_peer_id, .. },
+            )) => {
+                tracing::info!("Reservation with relay {:?} completed ", relay_peer_id);
+                relay_reservation_complete = true;
             }
-            libp2p::swarm::SwarmEvent::OutgoingConnectionError {connection_id:_, peer_id, .. } => {
+            libp2p::swarm::SwarmEvent::OutgoingConnectionError {
+                connection_id: _,
+                peer_id,
+                ..
+            } => {
                 if peer_id.is_some_and(|id| id == sharer_peer_id) {
                     //sharer_dial_complete = false;
                     swarm
-                    .dial(relay_address.clone()
-                            .with(Protocol::P2pCircuit)
-                            .with(Protocol::P2p(sharer_peer_id)),
+                        .dial(
+                            relay_address
+                                .clone()
+                                .with(Protocol::P2pCircuit)
+                                .with(Protocol::P2p(sharer_peer_id)),
                         )
-                    .unwrap();
+                        .unwrap();
                 }
             }
-            libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
-                  ..
-            })) => {
-                if let  Mode::Sharer = mode  {
+            libp2p::swarm::SwarmEvent::Behaviour(BehaviourEvent::Identify(
+                identify::Event::Received { .. },
+            )) => {
+                if let Mode::Sharer = mode {
                     if relay_reservation_complete == false {
                         swarm
-                        .listen_on(relay_address.clone().with(Protocol::P2pCircuit))
-                        .unwrap();
+                            .listen_on(relay_address.clone().with(Protocol::P2pCircuit))
+                            .unwrap();
                     }
                 } else {
                     if sharer_dial_complete == false {
                         swarm
-                        .dial(relay_address.clone()
-                                .with(Protocol::P2pCircuit)
-                                .with(Protocol::P2p(sharer_peer_id)),
+                            .dial(
+                                relay_address
+                                    .clone()
+                                    .with(Protocol::P2pCircuit)
+                                    .with(Protocol::P2p(sharer_peer_id)),
                             )
-                        .unwrap();
+                            .unwrap();
                         tokio::spawn(portforward_connection_handler(
-                            sharer_peer_id, swarm.behaviour().stream.new_control(), proxy_listen_addr));
+                            sharer_peer_id,
+                            swarm.behaviour().stream.new_control(),
+                            proxy_listen_addr,
+                        ));
                         sharer_dial_complete = true;
-                    }  
+                    }
                 }
             }
             event => tracing::trace!(?event),
@@ -235,32 +245,37 @@ async fn main() -> Result<()> {
 }
 
 /// A very simple, `async fn`-based connection handler for our custom echo protocol.
-async fn portforward_connection_handler(peer: PeerId, mut control: stream::Control, proxy_listen_addr:SocketAddr) {
-        let listener = TcpListener::bind(proxy_listen_addr).await.unwrap();
-        tracing::info!("Set your browser proxy setting to 127.0.0.1:8080 to use internet from sharer");
-        loop {
-            let ( app_stream, _) = listener.accept().await.unwrap();
-            let _ = app_stream.set_nodelay(true);
+async fn portforward_connection_handler(
+    peer: PeerId,
+    mut control: stream::Control,
+    proxy_listen_addr: SocketAddr,
+) {
+    let listener = TcpListener::bind(proxy_listen_addr).await.unwrap();
+    tracing::info!("Set your browser proxy setting to 127.0.0.1:8080 to use internet from sharer");
+    loop {
+        let (app_stream, _) = listener.accept().await.unwrap();
+        let _ = app_stream.set_nodelay(true);
 
-            let  p2p_stream = match control.open_stream(peer, PROXY_PROTOCOL).await {
-                Ok(stream) => stream,
-                Err(error @ stream::OpenStreamError::UnsupportedProtocol(_)) => {
-                    tracing::info!(%peer, %error);
-                    continue;
-                }
-                Err(error) => {
-                    tracing::info!(%peer, %error);
-                    continue;
-                }
-            };
-   
-            tokio::spawn(async move {
-                tracing::info!("Accepted new connection from local");
- 
-               let mut p2p_tokio_stream =  Compat::new(p2p_stream);
-               let mut app_stream = app_stream;
+        let p2p_stream = match control.open_stream(peer, PROXY_PROTOCOL).await {
+            Ok(stream) => stream,
+            Err(error @ stream::OpenStreamError::UnsupportedProtocol(_)) => {
+                tracing::info!(%peer, %error);
+                continue;
+            }
+            Err(error) => {
+                tracing::info!(%peer, %error);
+                continue;
+            }
+        };
 
-                let (from_p2p, from_app) = match tokio::io::copy_bidirectional(&mut p2p_tokio_stream, &mut app_stream).await {
+        tokio::spawn(async move {
+            tracing::info!("Accepted new connection from local");
+
+            let mut p2p_tokio_stream = Compat::new(p2p_stream);
+            let mut app_stream = app_stream;
+
+            let (from_p2p, from_app) =
+                match tokio::io::copy_bidirectional(&mut p2p_tokio_stream, &mut app_stream).await {
                     Ok((from_p2p, from_app)) => (from_p2p, from_app),
                     Err(error) => {
                         // Handle the error
@@ -269,43 +284,43 @@ async fn portforward_connection_handler(peer: PeerId, mut control: stream::Contr
                         return;
                     }
                 };
-                tracing::info!(
-                    "App wrote {} bytes and received {} bytes",
-                    from_app, from_p2p
-                );
-            });
-        }
+            tracing::info!(
+                "App wrote {} bytes and received {} bytes",
+                from_app,
+                from_p2p
+            );
+        });
+    }
 }
-
 
 async fn handle_incoming_streams(
     mut incoming_streams: stream::IncomingStreams,
     accepted_peer_ids: Vec<String>,
 ) -> () {
-
     while let Some((peer, p2p_stream)) = incoming_streams.next().await {
-            let peer_id_str = peer.to_string();
-            let mut is_accepted = true;
-            for accepted_id in &accepted_peer_ids {
-                if accepted_id.contains(&peer_id_str) {
-                    is_accepted = true;
-                    break;
-                }
-                is_accepted = false;
-            }    
-            // Check if peer ID is in the allowed vector of strings
-            if !is_accepted {
-                tracing::warn!("Unauthorized peer: {}", peer_id_str);
-                continue;
+        let peer_id_str = peer.to_string();
+        let mut is_accepted = true;
+        for accepted_id in &accepted_peer_ids {
+            if accepted_id.contains(&peer_id_str) {
+                is_accepted = true;
+                break;
             }
+            is_accepted = false;
+        }
+        // Check if peer ID is in the allowed vector of strings
+        if !is_accepted {
+            tracing::warn!("Unauthorized peer: {}", peer_id_str);
+            continue;
+        }
 
-            tokio::spawn(async move {
-                let mut app_stream = TcpStream::connect("127.0.0.1:8090").await.unwrap();
-                let _ = app_stream.set_nodelay(true);
+        tokio::spawn(async move {
+            let mut app_stream = TcpStream::connect("127.0.0.1:8090").await.unwrap();
+            let _ = app_stream.set_nodelay(true);
 
-                let mut p2p_tokio_stream =  Compat::new(p2p_stream);
+            let mut p2p_tokio_stream = Compat::new(p2p_stream);
 
-                let (from_p2p, from_app) = match tokio::io::copy_bidirectional(&mut p2p_tokio_stream, &mut app_stream).await {
+            let (from_p2p, from_app) =
+                match tokio::io::copy_bidirectional(&mut p2p_tokio_stream, &mut app_stream).await {
                     Ok((from_p2p, from_app)) => (from_p2p, from_app),
                     Err(error) => {
                         tracing::info!("Error copying data from p2p to app stream: {:?}", error);
@@ -313,12 +328,13 @@ async fn handle_incoming_streams(
                     }
                 };
 
-                tracing::info!(
-                    "P2P stream wrote {} bytes and received {} bytes",
-                    from_p2p, from_app
-                );
-            });
-        }
+            tracing::info!(
+                "P2P stream wrote {} bytes and received {} bytes",
+                from_p2p,
+                from_app
+            );
+        });
+    }
 }
 
 // Create new cert key pair if not found otherwise use existing cert.
@@ -328,9 +344,7 @@ fn get_identity() -> Result<Keypair, Error> {
 
     // Try to read the key pair from the file
     match read(&file_path) {
-        Ok(keypair) => {
-            Ok(Keypair::from_protobuf_encoding(keypair.as_slice()).unwrap())
-        }
+        Ok(keypair) => Ok(Keypair::from_protobuf_encoding(keypair.as_slice()).unwrap()),
         Err(_) => {
             // If the file doesn't exist or is invalid, generate a new key pair
             let new_keypair = Keypair::generate_ed25519();
