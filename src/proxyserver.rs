@@ -24,7 +24,7 @@ impl HttpProxy {
     }
 
     pub(crate) async fn run(&self) -> Result<(), Box<dyn std::error::Error>>{
-    let addr = SocketAddr::from(self.address);
+    let addr = self.address;
 
     let listener = TcpListener::bind(addr).await?;
 
